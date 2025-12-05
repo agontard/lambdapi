@@ -15,7 +15,7 @@ module CLT = Cmdliner.Term
 
 (* NOTE only standard [Stdlib] references here. *)
 
-(** {3 Evaluation of commands}. *)
+(** {3 Evaluation of commands. *)
 
 module LPSearchMain =
 struct
@@ -176,7 +176,7 @@ let export_cmd (cfg:Config.t) (output:output option) (encoding:string option)
     Config.init {cfg with verbose = Some 0};
     Export.Coq.use_implicits := not no_implicits;
     Export.Coq.use_notations := use_notations;
-    Export.Coq.translate_explicits := translate_explicits
+    Export.Coq.translate_explicits := translate_explicits;
     match output with
     | None
     | Some Lp -> Pretty.ast Format.std_formatter (Parser.parse_file file)
