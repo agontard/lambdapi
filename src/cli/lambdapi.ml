@@ -15,7 +15,7 @@ module CLT = Cmdliner.Term
 
 (* NOTE only standard [Stdlib] references here. *)
 
-(** {3 Evaluation of commands. *)
+(** {3 Evaluation of commands}. *)
 
 module LPSearchMain =
 struct
@@ -171,11 +171,12 @@ type output = Lp | Dk | RawDk | Hrs | Xtc | RawCoq | SttCoq
 let export_cmd (cfg:Config.t) (output:output option) (encoding:string option)
       (mapping:string option) (renaming:string option)
       (requiring:string option) (no_implicits:bool) (use_notations:bool)
-      (file:string) : unit =
+      (translate_explicits:bool) (file:string) : unit =
   let run _ =
     Config.init {cfg with verbose = Some 0};
     Export.Coq.use_implicits := not no_implicits;
     Export.Coq.use_notations := use_notations;
+    Export.Coq.translate_explicits := translate_explicits
     match output with
     | None
     | Some Lp -> Pretty.ast Format.std_formatter (Parser.parse_file file)
@@ -367,6 +368,10 @@ let use_notations : bool CLT.t =
   let doc = "Generate Coq code using notations." in
   Arg.(value & flag & info ["use-notations"] ~doc)
 
+let translate_explicits : bool CLT.t =
+  let doc = "Translate explicit arguments assuming all or none are given." in
+  Arg.(value & flag & info ["translate-explicits"] ~doc)
+
 (** Remaining arguments: source files. *)
 
 let file : string CLT.t =
@@ -438,7 +443,8 @@ let export_cmd =
   let doc = "Translate the given files to other formats." in
   Cmd.v (Cmd.info "export" ~doc ~man:man_pkg_file)
     CLT.(const export_cmd $ Config.full $ output $ encoding $ mapping
-         $ renaming $ requiring $ no_implicits $ use_notations $ file)
+         $ renaming $ requiring $ no_implicits $ use_notations
+         $ translate_explicits $ file)
 
 let lsp_server_cmd =
   let doc = "Runs the LSP server." in

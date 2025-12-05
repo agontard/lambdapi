@@ -181,6 +181,11 @@ let qident oc {elt=(mp,s);_} =
 let stt = Stdlib.ref false
 let use_implicits = Stdlib.ref false
 let use_notations = Stdlib.ref false
+(* whether to translate [f [x] y] by [f y] or [@f x y] *)
+(* none is perfect, but it's better than to not translate at all) *)
+(* defaults to false as it's faster (no checking for explicits) *)
+
+let translate_explicits = Stdlib.ref false
 
 (* redefinition of p_get_args ignoring P_Wrap's. *)
 let p_get_args : p_term -> p_term * p_term list = fun t ->
@@ -203,15 +208,15 @@ let app t default cases =
     | _ -> default h ts
   else default h ts
 
-let rec term oc t =
+let rec term_no_explicits oc t =
   (*if Logger.log_enabled() then
     log "pp %a" (*Pos.short t.pos*) Pretty.term t;*)
   match t.elt with
   | P_Meta _ -> wrn t.pos "TODO"; assert false
   | P_Patt _ -> wrn t.pos "TODO"; assert false
-  | P_Expl _ -> wrn t.pos "TODO"; assert false
   | P_SLit _ -> wrn t.pos "TODO"; assert false
   | P_NLit _ -> wrn t.pos "TODO"; assert false
+  | P_Expl _ -> ()
   | P_Type -> string oc "Type"
   | P_Wild -> char oc '_'
   | P_Iden(qid,b) ->
@@ -226,21 +231,21 @@ let rec term oc t =
   | P_Prod(xs,u) -> prod oc xs u
   | P_LLet(x,xs,a,u,v) ->
     string oc "let "; ident oc x; params_list oc xs; typopt oc a;
-    string oc " := "; term oc u; string oc " in "; term oc v
-  | P_Wrap u -> term oc u
+    string oc " := "; term_no_explicits oc u; string oc " in "; term_no_explicits oc v
+  | P_Wrap u -> term_no_explicits oc u
   | P_Appl _ ->
       let default h ts = paren oc h; char oc ' '; list paren " " oc ts in
       app t default
         (fun h ts expl builtin ->
           match !use_notations, !use_implicits && not expl, builtin, ts with
-          | _, _, (El|Prf), [u] -> term oc u
+          | _, _, (El|Prf), [u] -> term_no_explicits oc u
           | _, _, (Arr|Imp), [u;v] -> arrow oc u v
           | _, _, All, [_;{elt=P_Wrap({elt=P_Abst([_] as xs,u);_});_}]
           | _, true, All, [{elt=P_Wrap({elt=P_Abst([_] as xs,u);_});_}]
             -> prod oc xs u
           | _, _, Ex, [_;{elt=P_Wrap({elt=P_Abst([x],u);_});_}]
           | _, true, Ex, [{elt=P_Wrap({elt=P_Abst([x],u);_});_}] ->
-              string oc "exists "; raw_params oc x; string oc ", "; term oc u
+              string oc "exists "; raw_params oc x; string oc ", "; term_no_explicits oc u
           | true, _, Eq, [_;u;v]
           | true, true, Eq, [u;v] -> paren oc u; string oc " = "; paren oc v
           | true, _, Or, [u;v] -> paren oc u; string oc " \\/ "; paren oc v
@@ -248,14 +253,14 @@ let rec term oc t =
           | true, _, Not, [u] -> string oc "~ "; paren oc u
           | _ -> default h ts)
 
-and arrow oc u v = paren oc u; string oc " -> "; term oc v
+and arrow oc u v = paren oc u; string oc " -> "; term_no_explicits oc v
 and abst oc xs u =
-  string oc "fun"; params_list_in_abs oc xs; string oc " => "; term oc u
+  string oc "fun"; params_list_in_abs oc xs; string oc " => "; term_no_explicits oc u
 and prod oc xs u =
-  string oc "forall"; params_list_in_abs oc xs; string oc ", "; term oc u
+  string oc "forall"; params_list_in_abs oc xs; string oc ", "; term_no_explicits oc u
 
 and paren oc t =
-  let default() = char oc '('; term oc t; char oc ')' in
+  let default() = char oc '('; term_no_explicits oc t; char oc ')' in
   match t.elt with
   | P_Arro _ | P_Abst _ | P_Prod _ | P_LLet _ | P_Wrap _ -> default()
   | P_Appl _ ->
@@ -264,7 +269,7 @@ and paren oc t =
           match builtin, ts with
           | (El|Prf), [u] -> paren oc u
           | _ -> default())
-  | _ -> term oc t
+  | _ -> term_no_explicits oc t
 
 and raw_params oc (ids,t,_) = param_ids oc ids; typopt oc t
 
@@ -284,7 +289,49 @@ and params_list_in_abs oc l =
   | _ -> params_list oc l
 
 (* starts with a space if <> None *)
-and typopt oc t = Option.iter (prefix " : " term oc) t
+and typopt oc t = Option.iter (prefix " : " term_no_explicits oc) t
+
+(** modify a term to prefix function symbols by '@' if they
+    are applied to explicited arguments (and remove brackets in that case) *)
+let rec remove_explicits t = remove_explicits_rec t false (fun u0 -> u0)
+and remove_explicits_rec (t : p_term) (seen : bool) (cont : p_term -> p_term) : p_term =
+  let app_cont elt' = cont {elt = elt' ; pos = t.pos} in
+  let rec_call u seen f =
+    remove_explicits_rec u seen (fun u0 -> app_cont (f u0))
+  in
+    match t.elt with
+    | P_Appl(u,v) ->
+      let v = remove_explicits v in
+      let rec is_explicit v = match v.elt with
+        | P_Expl _ -> true
+        | P_Wrap v -> is_explicit v
+        | P_LLet(_,_,_,_,v) -> is_explicit v
+        | _ -> false
+      in 
+        rec_call u (seen || is_explicit v) (fun u0 -> P_Appl(u0,v))
+    | P_Wrap u ->
+      rec_call u seen (fun u0 -> P_Wrap u0)
+    | P_LLet(x,xs,a,u,v) ->
+      let xs = remove_explicits_params xs in
+      let a = Option.map remove_explicits a in
+      let u = remove_explicits u in
+      rec_call v seen (fun v0 -> P_LLet(x,xs,a,u,v0))
+    | _ -> app_cont (match t.elt with
+      | P_Iden(qid,b) -> P_Iden(qid, b || seen)
+      | P_Arro(u,v) -> P_Arro(remove_explicits u,remove_explicits v)
+      | P_Abst(xs,u) -> P_Abst(remove_explicits_params xs,remove_explicits u)
+      | P_Prod(xs,u) -> P_Prod(remove_explicits_params xs,remove_explicits u)
+      | elt -> elt)
+and remove_explicits_params l = List.map (fun (ids,typ,impl) ->
+  (ids,Option.map remove_explicits typ,impl)) l
+
+let term oc t =
+  let t = if !translate_explicits
+    then remove_explicits t (* instead of specifying individual
+                               explicit arguments with '[...]',
+                               prefix functions with '@' *)
+    else t (* explicit arguments will be ignored *)
+  in term_no_explicits oc t 
 
 (** Translation of commands. *)
 
