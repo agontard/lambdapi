@@ -5,7 +5,8 @@ constant symbol bool : Set;
 constant symbol fun : Set → Set → Set;
 injective symbol El : Set → TYPE;
 rule El (fun $a $b) ↪ El $a → El $b;
-injective symbol Prf : El bool → TYPE;
+symbol Prop ≔ El bool;
+injective symbol Prf : Prop → TYPE;
 
 /* HOL-Light primitive constants, axioms and rules */
 constant symbol = [A] : El (fun A (fun A bool)); notation = infix 50;
@@ -24,8 +25,10 @@ opaque symbol TRANS [a] [x y z : El a] (xy: Prf (x = y)) (yz: Prf (y = z))
 opaque symbol SYM [a] [x y : El a] (xy: Prf (x = y)) : Prf (y = x) ≔
 @EQ_MP (@= a x x) (@= a y x) (@MK_COMB a bool (@= a x) (@= a y) x x (@MK_COMB a (fun a bool) (@= a) (@= a) x y (@REFL (fun a (fun a bool)) (@= a)) xy) (@REFL a x)) (@REFL a x);
 
-builtin "T"     ≔ El; // : U → TYPE
-builtin "P"     ≔ Prf; // : Prop → TYPE
+builtin "Set"   ≔ Set;
+builtin "El"    ≔ El; // : U → TYPE
+builtin "Prop"  ≔ Prop; // : Prop → TYPE
+builtin "Prf"   ≔ Prf;
 builtin "eq"    ≔ =; // : Π [a], T a → T a → Prop
 builtin "refl"  ≔ REFL; // : Π [a] (x:T a), P(x = x)
 symbol eq_ind : Π [a] x y, Prf (x = y) → Π p:El a → El bool, Prf (p y) → Prf (p x) ≔ begin
