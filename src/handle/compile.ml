@@ -29,16 +29,16 @@ let source base =
     is stored in the corresponding object file if [!gen_obj] is [true]. The
     sig_state [ss] is only used to get the "String" builtin. *)
 let rec compile : Command.compiler = fun ss mp ->
-  if List.mem mp !loading then
+  if mp = Ghost.path then Ghost.sign
+  else if List.mem mp !loading then
     begin
       let base = file_of_path mp in
       fatal_msg "Circular dependency detected in \"%s\".@." (source base);
       fatal_msg "Dependency stack for module:@.";
       List.iter (fatal_msg "- %a@." Path.pp) !loading;
       fatal_no_pos "Build aborted."
-    end;
-  if mp = Ghost.path then Ghost.sign else
-  match Path.Map.find_opt mp !loaded with
+    end
+  else match Path.Map.find_opt mp !loaded with
   | Some sign -> sign
   | None ->
     let base = file_of_path mp in
@@ -52,9 +52,6 @@ let rec compile : Command.compiler = fun ss mp ->
       (* [sign] is added to [loaded] before processing the commands so that it
          is possible to qualify the symbols of the current modules. *)
       loaded := Path.Map.add mp sign !loaded;
-      (*let open Base in sout "loaded:";
-        Path.Map.iter (fun p _ -> sout " %a" Path.pp p) !loaded;
-        sout "\n%!";*)
       let a = Tactic.reset_admitted() in
       Sig_state.update_ext_sym_dtrees false ss;
       let consume =
@@ -77,6 +74,11 @@ let rec compile : Command.compiler = fun ss mp ->
     begin
       Console.out 2 (Color.blu "Load \"%s\"") obj;
       let sign = Sign.read obj in
+      if sign.sign_path <> mp then
+        fatal_no_pos "The file \"%s\" has path \"%a\" instead of \"%a\". \
+                      Remove it and compile it again."
+          obj Path.pp sign.sign_path Path.pp mp
+      else begin
       (* We recursively load every module [mp'] on which [mp] depends. *)
       Path.Map.iter (fun mp' _ -> ignore (compile ss mp')) !(sign.sign_deps);
       loaded := Path.Map.add mp sign !loaded;
@@ -97,10 +99,11 @@ let rec compile : Command.compiler = fun ss mp ->
       Ghost.iter update;
       if Stdlib.(!Common.Console.lsp_mod) then Tool.Indexing.index_sign sign;
       sign
+      end
     end
 
 (** [compile_file fname] looks for a package configuration file for [fname]
     and compiles [fname]. *)
 let compile_file (fname:string): Sign.t =
-  Package.apply_config fname;
+  Package.set_root_path fname;
   compile Elpi_handle.Sig_state.dummy (path_of_file LpLexer.escape fname)

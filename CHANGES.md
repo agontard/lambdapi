@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Export to Lean.
 - Tactic `all_hyps t` calls parameterized tactic term t on all hypotheses ignoring failing calls.
 - Extend `print` query to the following arguments: `verbose`, `debug`, `flag`, `builtin`, `prover`, `prover_timeout`.
+- add a version number to the header of the index db file to prevent crash of LP when the structure of db changes.
 
 ### Changed
 
@@ -38,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Syntax of search query is modified as follows : `in` is used instead of `|` (filtering). `with` is used instead of `,` (conjunction). `|` is used instead of `;` (disjunction).
 - Type of `#assume` in order to generate a new symbol and use it inside a tactic term.
 - Errors occurring while a proof is in progress now report the proof state: the goals a failing tactic was applied to, the goals before and after the tactic for a subproof-count mismatch, and the remaining goals when a proof is unfinished at `end`. The state is printed after the error message, which stays unchanged. The LSP server does not attach the proof state to tactic failures since editors display it themselves.
+- Lambdapi does not use Cmdliner anymore.
 
 ### Fixed
 
