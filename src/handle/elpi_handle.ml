@@ -412,7 +412,7 @@ let solve_with_tc : ?ctxtmap: Term.ctxt IntMap.t ->
     if not (Unif.solve_noexn p) then res := false else begin
     let ms = !p.metas in
     if MetaSet.is_empty ms then () else
-    let tc = MetaSet.to_list ms in
+    let tc = MetaSet.elements ms in
       let query st =
         let open Elpi.API.RawData in
         let st = State.set ss_component st ss in
