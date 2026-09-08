@@ -255,7 +255,10 @@ external pred msolve i:list sealed-goal.
 ] @ Elpi.Builtin.std_declarations
 
 (** Path to the directory containing Elpi files (from dune-site) *)
-let elpi_path = List.hd Common.External.Sites.elpi_files
+let elpi_path =
+  try List.hd Common.External.Sites.elpi_files
+  with Failure _ -> Common.Error.fatal_no_pos
+    "path to elpi files not found"
 
 (** The file containing our built-in Elpi functions (in addition to
     standard elpi ones) *)
