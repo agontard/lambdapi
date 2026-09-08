@@ -146,7 +146,9 @@ let pp2string pp x =
   Format.fprintf fmt "%a%!" pp x;
   Buffer.contents b
 
-(** APIs (data types and predicates) exposed to Elpi *)
+(** APIs (data types and predicates) exposed to Elpi.
+    If changed, documentation must be updated using the
+    document function. *)
 let lambdapi_builtin_declarations : BuiltIn.declaration list =
   let open BuiltIn in
   let open BuiltInPredicate in
@@ -252,27 +254,25 @@ external pred msolve i:list sealed-goal.
 
 ] @ Elpi.Builtin.std_declarations
 
-(** Path useful for Elpi *)
-let elpi_path,builtins_file =
-  let rec iter f n x = if n > 0 then iter f (n-1) (f x) else x in
-  let exec = Sys.executable_name in
-  let from_lp = Filename.concat (iter Filename.dirname 3 exec) in
-  if Sys.file_exists (from_lp "src/elpi/tcsolver.elpi")
-  then from_lp "src/elpi", from_lp "doc/lambdapi-builtins.elpi"
-  else
-  let from_opam_switch = Filename.concat (iter Filename.dirname 2 exec) in
-  if Sys.file_exists (from_opam_switch "lib/lambdapi/elpi/tcsolver.elpi")
-  then from_opam_switch "lib/lambdapi/elpi", ""
-  else assert false
+(** Path to the directory containing Elpi files (from dune-site) *)
+let elpi_path = List.hd Common.External.Sites.elpi_files
+
+(** The file containing our built-in Elpi functions (in addition to
+    standard elpi ones) *)
+let builtins_file = Filename.concat elpi_path "doc/lambdapi_builtins.elpi"
 
 (** Expose them to Elpi. *)
 let lambdapi_builtins =
   BuiltIn.declare ~file_name:builtins_file lambdapi_builtin_declarations
 
-(** Generates the documentation of builtin functions in file
-    doc/lambdapi-builtins.elpi *)
-let document () =
-  BuiltIn.document_file ~header:"% automatically generated" lambdapi_builtins
+(** After changing or adding builtin functions for Elpi,
+    use "let () = document [path_to_lambdapi]"
+    to update documentation *)
+let document path =
+  let full_path = Filename.concat path "doc/lambdapi_builtins.elpi" in
+  let file =
+    BuiltIn.declare ~file_name:full_path lambdapi_builtin_declarations
+  in BuiltIn.document_file ~header:"% automatically generated" file
 
 (** The runtime of Elpi (we need only one I guess) *)
 let elpi = ref None
