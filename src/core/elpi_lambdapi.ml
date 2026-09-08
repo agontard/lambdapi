@@ -179,7 +179,7 @@ let embed_term : ?ctx:RawData.constant Term.actxt -> Common.Pos.popt ->
     | Patt _ -> Common.Error.fatal pos "embed_term: Patt not implemented"
     | Wild   -> Common.Error.fatal pos "embed_term: Wild not implemented"
     | TRef _ -> Common.Error.fatal pos "embed_term: TRef not implemented"
-    | LLet _ -> Common.Error.fatal pos "embed_term: LLet not implemented"
+    | LLet(_,t,b) -> aux ~depth ctx st (subst b t)
     | Bvar _ -> Common.Error.fatal pos "embed_term: Bvar not implemented"
   in
   let st, t = aux ~depth ctx st t in
