@@ -7,39 +7,50 @@ dune build
 clean () { rm -f tests/OK/*.lpo; }
 trap clean ERR
 
-lambdapi='dune exec --no-build -- src/cli/main.exe'
+lambdapi='_build/install/default/bin/lambdapi'
 test_witness='_build/default/test_load'
 mk=/tmp/lpo.mk
-jobs=32
+jobs=$(nproc)
 TIMEFORMAT="%Es"
 
+# tell lambdapi to search for elpi files (see src/handle/elpi_handle.ml)
 touch $test_witness
 
+# excluded test files
 for f in why3 perf_rw_engine tutorial escape_path req.file.with.dot
 do
     exclude="-a ! -name $f.lp $exclude"
 done
 FILES=`find tests/OK -maxdepth 1 -name '*.lp' $exclude | xargs`
 
+# generate Makefile $mk
 cat > $mk <<__END__
+LAMBDAPI := $lambdapi check -w -v 0
 FILES := $FILES
-default: \$(FILES:%.lp=%.lpo)
+lpo: \$(FILES:%.lp=%.lpo)
 %.lpo: %.lp
-	@echo lambdapi check \$(OPTION) \$<
-	@$lambdapi check -w -v 0 \$(OPTION) \$<
+	@echo generate \$*.lpo ...
+	@\$(LAMBDAPI) -c \$*.lp
+load: \$(FILES:%.lp=%.load)
+%.load: %.lp
+	@echo load \$*.lpo ...
+	@\$(LAMBDAPI) \$*.lp
 __END__
+
+# add file dependencies
 for f in $FILES
 do
     s=`awk -f tests/deps.awk $f`;
     if test -n "$s"; then echo ${f}o: $s >> $mk; fi
 done
 
+# remove lpo files
 clean
 
 echo "############ compile tests/OK files ############"
-OPTION='-c' time make -j$jobs -f $mk
+time make -j$jobs -f $mk lpo
 
 echo "############ load tests/OK files ############"
-time make -j$jobs -f $mk
+time make -j$jobs -f $mk load
 
 rm -f $test_witness
