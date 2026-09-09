@@ -7,10 +7,13 @@ dune build
 clean () { rm -f tests/OK/*.lpo; }
 trap clean ERR
 
-lambdapi='_build/install/default/bin/lambdapi'
+lambdapi='dune exec --no-build -- src/cli/main.exe'
+test_witness='_build/default/test_load'
 mk=/tmp/lpo.mk
 jobs=32
 TIMEFORMAT="%Es"
+
+touch $test_witness
 
 for f in why3 perf_rw_engine tutorial escape_path req.file.with.dot
 do
@@ -38,3 +41,5 @@ OPTION='-c' time make -j$jobs -f $mk
 
 echo "############ load tests/OK files ############"
 time make -j$jobs -f $mk
+
+rm -f $test_witness

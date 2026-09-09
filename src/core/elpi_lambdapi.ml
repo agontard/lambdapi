@@ -102,7 +102,6 @@ let applc = RawData.Constants.declare_global_symbol "appl"
 (* A two way map linking Elpi's unification variable and Terms.meta.
    An instance of this map is part of the Elpi state (threaded by many
    APIs) *)
-(* TODO: currently unused *)
 module M = struct
   type t = Term.meta
   let compare m1 m2 = Stdlib.compare m1.Term.meta_key m2.Term.meta_key
@@ -301,8 +300,6 @@ let readback_mbinder ?pp_ctx pos st t =
   in
     aux ~depth:0 IntMap.empty t
 
-(* Currently, instead of using the following function, the tc solver simply
-   returns the instance.*)
 (** [readback_assignments ?pp_ctx pos st] reads the terms associated to
     metavariables in the elpi state [st], translates them to Lambdapi terms
     and then intantiates the associated metavariables with these terms. *)

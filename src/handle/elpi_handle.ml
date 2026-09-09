@@ -257,8 +257,13 @@ external pred msolve i:list sealed-goal.
 (** Path to the directory containing Elpi files (from dune-site) *)
 let elpi_path =
   try List.hd Common.External.Sites.elpi_files
-  with Failure _ -> Common.Error.fatal_no_pos
-    "path to elpi files not found"
+  with Failure _ -> (* Special case: do not fail during test_load. *)
+    let rec iter f n x = if n > 0 then iter f (n-1) (f x) else x in
+    let exec = Sys.executable_name in
+    let from_lp = Filename.concat (iter Filename.dirname 3 exec) in
+    if Sys.file_exists (from_lp "test_load")
+    then from_lp "src/elpi"
+    else Common.Error.fatal_no_pos "path to elpi files not found"
 
 (** The file containing our built-in Elpi functions (in addition to
     standard elpi ones) *)
@@ -334,9 +339,7 @@ let add_tc_instance : Sig_state.t -> Common.Pos.popt -> Term.sym ->
     st, mkAppGlobal compilec arg [v] , gls in
   let query = Elpi.API.RawQuery.compile_raw_term tc_solver_prog query in
   match Execute.once (Elpi.API.Compile.optimize query) with
-  | Execute.Success {
-      Data.state; pp_ctx; assignments; _} ->
-      let _ = readback_assignments pos state in
+  | Execute.Success { pp_ctx; assignments; _} ->
       let arg1 = Elpi.API.Setup.StrMap.find "Result" assignments in
       let loc : Ast.Loc.t = Loc.of_popt pos in
       let ast = Elpi.API.Utils.clause_of_term ~pp_ctx ~depth:0 loc arg1 in
@@ -425,7 +428,7 @@ let solve_with_tc : ?ctxtmap: Term.ctxt IntMap.t ->
         st, mkAppGlobalL msolvec [Elpi.API.Utils.list_to_lp_list arg], gls in
       let query = Elpi.API.RawQuery.compile_raw_term
         (Sig_state.get_solver ss pos) query in
-      if Timed.(!trace) then (let _ = Setup.trace
+      if !trace then (let _ = Setup.trace
         ["-trace-on";"json";"/tmp/rawtrace.tmp.json";"-trace-at";
         "1";"9999";"-trace-only";"user"] in ());
       match Execute.once (Elpi.API.Compile.optimize query) with
