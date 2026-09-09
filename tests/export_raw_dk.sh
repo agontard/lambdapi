@@ -72,6 +72,8 @@ do
         547);;
         # aborted proof
         simp_beta);;
+        # type classes
+        elpi_isa_test|elpitest);;
         # default case:
         *) translate $f.lp;;
     esac
