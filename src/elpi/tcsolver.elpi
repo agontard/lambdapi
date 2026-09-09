@@ -1,4 +1,4 @@
-msolve Goals :- std.forall Goals (open tc).
+msolve Goals :- std.forall Goals (open [] tc).
 
 /*
 /* [add_abst Ty (x\ O)] returns [some (λ x : Ty, t x)] if [O] is [some (t x)]
@@ -12,17 +12,20 @@ add_abst Ty (x\ some (T x)) (some (abst Ty T)). */
 /* load the goal's context (possibly adding new local typeclass instances)
  * before trying typeclass resolution if the goal is a typeclass
  */
-pred open i:(symbol -> term -> term -> prop), i:sealed-goal.
-open P (nabla Ty F) :- pi x\ sigma Rule\ (comp ff Ty [] x Rule ; Rule = true),
-  Rule ==> open P (F x).
+pred open i:(list (func prop)) i:(symbol -> term -> term -> prop), i:sealed-goal.
+open Crules P (nabla Ty F) :- pi x\ open (comp ff Ty [] x :: Crules) P (F x).
 
-open P (seal (goal Ty Wit)) :- 
+open Crules P (seal (goal Ty Wit)) :- 
   safe-dest-app Ty (symb Class) [X],
   not (var Class),
   lp.tc? Class,
-  P Class X Wit.
+  sigma Rules\ std.map-filter Crules getrule Rules,
+  Rules ==> P Class X Wit.
 
-open _ _. %if not in any of the above cases, just do nothing. 
+open _ _ _. %if not in any of the above cases, just do nothing. 
+
+pred getrule i:(func prop) o:prop.
+getrule F P :- F P. 
 
 %[tc Name Arg Inst] <=> Inst is an instance of (Name Arg)
 %(currently, typeclasses must have exactly one argument)
