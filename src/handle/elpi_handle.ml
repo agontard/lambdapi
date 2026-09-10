@@ -391,7 +391,7 @@ let solve_with_tc : ?ctxtmap: Term.ctxt IntMap.t ->
       in
       let is_tc_goal m = concl_is_tc !(m.meta_type) in
       let tc = List.filter is_tc_goal (MetaSet.elements ms) in
-      if List.is_empty tc then () else
+      if tc == [] then () else
       let query st =
         let open Elpi.API.RawData in
         let st = State.set ss_component st ss in
