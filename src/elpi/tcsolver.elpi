@@ -1,16 +1,18 @@
 msolve Goals :- std.forall Goals (open [] tc).
 
-/*
+
 /* [add_abst Ty (x\ O)] returns [some (λ x : Ty, t x)] if [O] is [some (t x)]
  * and [none] otherwise
  */
+/*
 pred add_abst term, (term -> option term) -> option term.
 add_abst _ (_\none) none.
 
 add_abst Ty (x\ some (T x)) (some (abst Ty T)). */
 
-/* load the goal's context (possibly adding new local typeclass instances)
- * before trying typeclass resolution if the goal is a typeclass
+/* if the goal is a typeclass, load the goal's context
+ * (possibly adding new local typeclass instances)
+ * before trying typeclass resolution
  */
 pred open i:(list (func prop)) i:(symbol -> term -> term -> prop), i:sealed-goal.
 open Crules P (nabla Ty F) :- pi x\ open (comp ff Ty [] x :: Crules) P (F x).
@@ -18,7 +20,6 @@ open Crules P (nabla Ty F) :- pi x\ open (comp ff Ty [] x :: Crules) P (F x).
 open Crules P (seal (goal Ty Wit)) :- 
   safe-dest-app Ty (symb Class) [X],
   not (var Class),
-  lp.tc? Class,
   sigma Rules\ std.map-filter Crules getrule Rules,
   Rules ==> P Class X Wit.
 

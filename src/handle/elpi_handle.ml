@@ -106,9 +106,7 @@ let compilec = RawData.Constants.declare_global_symbol "compile"
 let embed_goal : Common.Pos.popt -> Term.meta Conversion.embedding =
   fun pos ~depth st m ->
   let open Term in let open RawData in
-  let ty =
-    let open Timed in
-    !(m.meta_type) in
+  let ty = Timed.(!(m.meta_type)) in
   let rec aux ~depth st (c,i,args) ty =
     match unfold ty with
     | Prod (dom,b) ->
@@ -354,53 +352,18 @@ let add_tc_instance : Sig_state.t -> Common.Pos.popt -> Term.sym ->
   | Failure -> Common.Error.fatal pos "elpi: failure in add_instance"
   | NoMoreSteps -> assert false
 
-(** [metas_of_term t] Computes the list of all
-    metavariables appearing in [t] *)
-let metas_of_term : Term.term -> Term.meta list =
-  fun t ->
-  let open Term in
-  let acc = ref [] in
-  let rec aux t =
-    match unfold t with
-    | Meta(m,_) when not (List.memq m !acc) ->
-       acc := m :: !acc
-    | Abst (dom, b) | Prod(dom, b) ->
-       aux dom;
-       let (_, b) = unbind b in
-       aux b
-    | LLet (dom, t, b) ->
-       aux dom;
-       aux t;
-       let (_, b) = unbind b in
-       aux b
-    | Appl(t,u) -> aux t; aux u
-    | Plac _ -> assert false (* term was inferred before *)
-    | _ -> ()
-  in
-    aux t;
-    !acc
-
-(** [meta_map_term t] replaces each subterm of [t] of the form
-    [Term.Meta (m,args)] with [f m args] *)
-let rec meta_map_term : (Term.meta -> Term.term array -> Term.term) ->
-  Term.term -> Term.term =
-  fun f t -> let open Term in
-  let cont = meta_map_term f in
-  let bcont = binder cont in
-  match t with
-  | Meta(m,args) -> f m args
-  | Abst(dom,b) -> mk_Abst(cont dom,bcont b)
-  | Prod(dom,b) -> mk_Prod(cont dom,bcont b)
-  | LLet(dom,t,b) -> mk_LLet(cont dom,cont t,bcont b)
-  | Appl(t,u) -> let t = cont t in let u = cont u in mk_Appl(t,u)
-  | _ -> t
-
 (** Flag "elpi_trace". When set on, calls to elpi will write the elpi
     trace in file /tmp/rawtrace.tmp.json *)
 let trace = Common.Console.register_flag "elpi_trace" false
 
+(** If flag "elpi_trace" is on, causes elpi to write traces in file
+    /tmp/rawtrace.tmp.json *)
+let set_elpi_trace () = if Timed.(!trace) then let _ = Setup.trace
+  ["-trace-on";"json";"/tmp/rawtrace.tmp.json";"-trace-at";
+    "1";"9999";"-trace-only";"user"] in ()
+
 (* we set the state, Elpi.API.Query lacks this function *)
-(** [solve_wit_tc ?ctxmap ss pos p] tries to solve problem [p]
+(** [solve_with_tc ?ctxmap ss pos p] tries to solve problem [p]
     by repeatedly calling {!val:Unif.solve_noexn} and the
     typeclass solver from tcsolver.elpi until no progress can
     be made. It returns [false] if it finds a constraint it
@@ -416,9 +379,19 @@ let solve_with_tc : ?ctxtmap: Term.ctxt IntMap.t ->
     while !continue && !res do
     continue := false;
     if not (Unif.solve_noexn p) then res := false else begin
-    let ms = !p.metas in
-    if MetaSet.is_empty ms then () else
-    let tc = MetaSet.elements ms in
+      let ms = !p.metas in
+      let rec is_applied_tc t = match unfold t with
+        | Appl(t,_) -> is_applied_tc t
+        | Symb s -> SymSet.mem s ss.active_tc
+        | _ -> false
+      in
+      let rec concl_is_tc t = match unfold t with
+        | Prod(_,rest) -> let (_,t) = unbind rest in concl_is_tc t
+        | _ ->  is_applied_tc t
+      in
+      let is_tc_goal m = concl_is_tc !(m.meta_type) in
+      let tc = List.filter is_tc_goal (MetaSet.elements ms) in
+      if List.is_empty tc then () else
       let query st =
         let open Elpi.API.RawData in
         let st = State.set ss_component st ss in
