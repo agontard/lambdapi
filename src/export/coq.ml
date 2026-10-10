@@ -51,26 +51,11 @@ let rec term oc t =
     string oc "let "; ident oc x; params_list oc xs; typopt oc a;
     string oc " := "; term oc u; string oc " in "; term oc v
   | P_Wrap u -> term oc u
-  | P_Appl _ ->
-      let default h ts = paren oc h; char oc ' '; list paren " " oc ts in
-      app t default
-        (fun h ts expl builtin ->
-          match !use_notations, !use_implicits && not expl, builtin, ts with
-          | _, _, (El|Prf), [u] -> term oc u
-          | _, _, (Arr|Imp), [u;v] -> arrow oc u v
-          | _, _, All, [_;{elt=P_Wrap({elt=P_Abst([_] as xs,u);_});_}]
-          | _, true, All, [{elt=P_Wrap({elt=P_Abst([_] as xs,u);_});_}]
-            -> prod oc xs u
-          | _, _, Ex, [_;{elt=P_Wrap({elt=P_Abst([x],u);_});_}]
-          | _, true, Ex, [{elt=P_Wrap({elt=P_Abst([x],u);_});_}] ->
-              string oc "exists "; raw_params oc x; string oc ", "; term oc u
-          | true, _, Eq, [_;u;v]
-          | true, true, Eq, [u;v] -> paren oc u; string oc " = "; paren oc v
-          | true, _, Or, [u;v] -> paren oc u; string oc " \\/ "; paren oc v
-          | true, _, And, [u;v] ->  paren oc u; string oc " /\\ "; paren oc v
-          | true, _, Not, [u] -> string oc "~ "; paren oc u
-          | _ -> default h ts)
+  | P_Appl _ -> app oc false t
 
+and app oc =
+  let default h ts = paren oc h ; char oc ' ' ; list paren " " oc ts in
+  Stt.app (string oc) (term oc) (paren oc) (ne_params_list oc) default
 and arrow oc u v = paren oc u; string oc " -> "; term oc v
 and abst oc xs u =
   string oc "fun"; params_list_in_abs oc xs; string oc " => "; term oc u
@@ -78,15 +63,10 @@ and prod oc xs u =
   string oc "forall"; params_list_in_abs oc xs; string oc ", "; term oc u
 
 and paren oc t =
-  let default() = char oc '('; term oc t; char oc ')' in
-  match t.elt with
-  | P_Arro _ | P_Abst _ | P_Prod _ | P_LLet _ | P_Wrap _ -> default()
-  | P_Appl _ ->
-      app t (fun _ _ -> default())
-        (fun _ ts _ builtin ->
-          match builtin, ts with
-          | (El|Prf), [u] -> paren oc u
-          | _ -> default())
+  let default () = char oc '('; term oc t; char oc ')' in
+  match unwrap t.elt with
+  | P_Arro _ | P_Abst _ | P_Prod _ | P_LLet _ | P_Wrap _-> default()
+  | P_Appl _ -> app oc true t
   | _ -> term oc t
 
 and raw_params oc (ids,t,_) = param_ids oc ids; typopt oc t
@@ -106,6 +86,12 @@ and params_list_in_abs oc l =
   | [ids,t,false] -> char oc ' '; param_ids oc ids; typopt oc t
   | _ -> params_list oc l
 
+(* Considers a space to already be written if needed. Must be non-empty *)
+and ne_params_list oc l =
+  match l with
+  | [ids,t,false] -> param_ids oc ids; typopt oc t
+  | p :: l -> params oc p ; params_list oc l
+  | _ -> assert false
 (* starts with a space if <> None *)
 and typopt oc t = Option.iter (prefix " : " term oc) t
 

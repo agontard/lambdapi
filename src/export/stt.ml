@@ -11,49 +11,6 @@ let log = log.pp
 module Qid = struct type t = Term.qident let compare = Stdlib.compare end
 module QidMap = Map.Make(Qid)
 
-(** Symbols necessary to encode STT. *)
-
-type builtin =
-  Set | Prop | Arr | El | Imp | All | Prf | Eq | Or | And | Ex | Not
-
-let index_of_builtin = function
-  | Set -> 0 | Prop -> 1 | Arr -> 2 | El -> 3 | Imp -> 4 | All -> 5
-  | Prf -> 6 | Eq -> 7 | Or -> 8 | And -> 9 | Ex -> 10 | Not -> 11
-
-let nb_builtins = 12
-
-let builtin_of_index = function
-  | 0 -> Set | 1 -> Prop | 2 -> Arr | 3 -> El | 4 -> Imp | 5 -> All
-  | 6 -> Prf | 7 -> Eq | 8 -> Or | 9 -> And | 10 -> Ex | 11 -> Not
-  | _ -> assert false
-
-let _ = (* sanity check *)
-  for i = 0 to nb_builtins - 1 do
-    assert (index_of_builtin (builtin_of_index i) = i)
-  done
-
-let index_of_name = function
-  | "Set" -> Some 0 | "prop" -> Some 1 | "arr" -> Some 2 | "El" -> Some 3
-  | "imp" -> Some 4 | "all" -> Some 5 | "Prf" -> Some 6 | "eq" -> Some 7
-  | "or" -> Some 8 | "and" -> Some 9 | "ex" -> Some 10 | "not" -> Some 11
-  | _ -> None
-
-let name_of_index = function
-  | 0 -> "Set" | 1 -> "prop" | 2 -> "arr" | 3 -> "El" | 4 -> "imp"| 5 -> "all"
-  | 6 -> "Prf" | 7 -> "eq" | 8 -> "or" | 9 -> "and" | 10 -> "ex" | 11 -> "not"
-  | _ -> assert false
-
-let _ = (* sanity check *)
-  for i = 0 to nb_builtins - 1 do
-    assert (index_of_name (name_of_index i) = Some i)
-  done
-
-let builtin : Term.qident array =
-  let path = ["STTfa"] in
-  Array.init nb_builtins (fun i -> path, name_of_index i)
-
-let sym b = builtin.(index_of_builtin b)
-
 (** Set renaming map from file. *)
 
 let rmap = ref StrMap.empty
@@ -101,36 +58,90 @@ let is_mapped id =
 
 (** Set encoding. *)
 
-let encoding = ref QidMap.empty
+type pattern_tree =
+  | Leaf of string
+  | Branch of pattern_tree * (pattern_tree * bool) list
 
-let add_encoding qid b = encoding := QidMap.add qid b !encoding
+(** regexp matching either ($n) or $n *)
+let arg n =
+  let n' = Int.to_string n in
+  Str.regexp ({|\((\$|} ^ n' ^ {|)\|\$|} ^ n' ^ {|\)|})
 
-let set_encoding : string -> unit = fun f ->
-  let found = Array.make nb_builtins false in
+let pattern_tree_of_string arity s =
+  let rec t_of_s i s =
+    if i == arity + 1 then Leaf s
+    else match Str.full_split (arg i) s with
+    | [] -> assert false
+    | Text s' :: rest -> Branch (t_of_s (i+1) s',t_of_l i rest)
+    | l -> Branch(Leaf "", t_of_l i l)
+  and t_of_l i l = match l with
+    | [] -> []
+    | [Delim d] -> [(Leaf "", String.contains d '(')]
+    | Delim d :: Text s :: rest ->
+      (t_of_s (i+1) s, String.contains d '(') :: t_of_l i rest
+    | _ -> assert false
+  in t_of_s 1 s
+
+let pattern_tree_iter of_string of_pvar of_var t =
+  let rec pattern_tree_iter index t = match t with
+    | Leaf s -> of_string s
+    | Branch (hd,tl) -> pattern_tree_iter (index+1) hd;
+      List.iter (fun (t,paren) -> (if paren then of_pvar else of_var) index;
+        pattern_tree_iter (index+1) t) tl
+  in pattern_tree_iter 1 t
+
+type notation_kind =
+| Trivial of int
+| Regular of bool (* enclosed *) * int (* arity *) * pattern_tree
+| Quantifier of bool (* enclosed *) * int (* arity *) * pattern_tree
+
+let mk_trivial pos s =
+  let n = try int_of_string s with
+    | Failure _ -> fatal pos {|trivial pattern syntax: "trivial (int)"|}
+  in if n > 0 then Trivial n else fatal pos "Arity must be strictly positive."
+
+let notations : notation_kind QidMap.t ref = ref QidMap.empty
+let add_notation qid nota = notations := QidMap.add qid nota !notations
+
+let parse_pat pos pat =
+  let find_prefix prefix s = if String.is_prefix prefix s
+    then let n = String.length prefix in
+      (true, String.sub s n (String.length s - n))
+    else (false, s)
+  in let (is_triv,pat) = find_prefix "trivial " pat in
+  if is_triv then mk_trivial pos pat
+  else let (is_enclosed,pat) = find_prefix "enclosed " pat in
+  let (is_quantifier,pat) = find_prefix "quantifier " pat in
+  let arity_regexp = Str.regexp {|^\([0-9]+\)[ \t]*| \(.+\)|} in
+  if not (Str.string_match arity_regexp pat 0)
+  then fatal pos "Cannot find arity in pattern: \"%s\"" pat
+  else let arity = int_of_string (Str.matched_group 1 pat) in
+  let pat = Str.matched_group 2 pat in
+  if not is_quantifier
+  then Regular (is_enclosed, arity, pattern_tree_of_string arity pat)
+  else match Str.split_delim (Str.regexp {|\$x|}) pat with
+  | [hd;tl] ->
+    let to_tree s =
+      let simple_arg = Str.regexp ({|\$|} ^ Int.to_string arity) in
+      let s = Str.global_substitute simple_arg (fun _ -> "$1") s in
+      pattern_tree_of_string 1 s
+    in let pat_tree = Branch(to_tree hd, [(to_tree tl, false)]) in
+    Quantifier (is_enclosed, arity, pat_tree)
+  | _ -> fatal pos "%s\n Faulty pattern: \"%s\""
+    "Variable pattern must happen exactly once." pat
+
+let set_notations : string -> unit = fun f ->
   let consume = function
-    | {elt=P_builtin(n,({elt=qid;_} as lp_qid));pos} ->
-        begin match index_of_name n with
-        | Some i ->
-            if Logger.log_enabled() then
-              log "builtin \"%s\" = %a" n Pretty.qident lp_qid;
-            builtin.(i) <- qid;
-            found.(i) <- true;
-            let b = builtin_of_index i in
-            add_encoding qid b;
-            if b = El || b = Prf then add_mapping lp_qid n
-        | None -> fatal pos "Unknown builtin."
-        end
+    | {elt=P_builtin(pat,({elt=qid;_} as lp_qid));pos} ->
+        if Logger.log_enabled() then
+          log "builtin \"%s\" = %a" pat Pretty.qident lp_qid;
+        add_notation qid (parse_pat pos pat)
     | {pos;_} -> fatal pos "Invalid command."
   in
-  Stream.iter consume (Parser.parse_file f);
-  Array.iteri
-    (fun i b ->
-      if not b then
-        fatal None(*FIXME*) "Builtin %s undefined." (name_of_index i))
-    found
+  Stream.iter consume (Parser.parse_file f)
 
 let is_encoded id =
-  QidMap.mem ([],id) !encoding || QidMap.mem (!current_mp,id) !encoding
+  QidMap.mem ([],id) !notations || QidMap.mem (!current_mp,id) !notations
 
 (** Map from symbol name to number of type variables (>0). A symbol with no
     entry is not polymorphic (arity =0). *)
@@ -221,17 +232,59 @@ let p_get_args : p_term -> p_term * p_term list = fun t ->
     | _ -> t, acc
   in p_get_args t []
 
-let app t default cases =
-  let h, ts = p_get_args t in
+let combine_arguments (ps : p_params list) ps' =
+  if ps = [] then ps' else
+  let (hd,(l,t,b)) = List.split_last ps in
+  match ps' with
+  | (l',t',b') :: tl when Option.eq eq_p_term t t' && b = b' ->
+    hd @ (l @ l',t,b) :: tl
+  | _ -> ps @ ps'
+
+let rec unwrap t = match t with P_Wrap t -> unwrap t.elt | _ -> t
+
+let app of_string of_term with_p of_args default needs_parentheses t =
+  let enclose enclosed f =
+    if needs_parentheses && not enclosed
+    then (of_string "(" ; f() ; of_string ")")
+    else f()
+  in let (h,ts) = p_get_args t in
+  let default() = enclose false (fun() -> default h ts) in
   if !stt then
     match h.elt with
-    | P_Iden({elt;_},expl) ->
-        begin match QidMap.find_opt elt !encoding with
-        | None -> default h ts
-        | Some builtin -> cases h ts expl builtin
+    | P_Iden({elt;_},b) ->
+        begin match QidMap.find_opt elt !notations with
+        | Some(Regular(enclosed,arity,pat)) when arity = List.length ts ->
+          let on_nth f n = f (List.nth ts (n-1)) in
+          enclose enclosed (fun () ->
+            pattern_tree_iter of_string (on_nth with_p) (on_nth of_term) pat
+          )
+        | Some(Quantifier(enclosed,arity,pat))
+          when arity = List.length ts ->
+          let rec get_args_body ts accl acct =
+            match unwrap (List.nth ts (arity - 1)).elt with
+            | P_Abst(args,t) -> let (h,ts) = p_get_args t in
+              let new_args = combine_arguments accl args in
+              let is_same_symb = match unwrap h.elt with
+              | P_Iden ({elt=qid;_},b') -> qid = elt && b = b'
+              | _ -> false
+              in if is_same_symb && arity = List.length ts
+              then get_args_body ts new_args t
+              else (new_args, t)
+            | _ -> (accl,acct)
+          in let (args,body) = get_args_body ts [] t in
+          if args == [] then default() else
+          let of_pvar n = assert (n = 2); with_p body in
+          let of_var n = if n = 1 then of_args args
+            else (assert (n = 2); of_term body)
+          in enclose enclosed (fun() ->
+            pattern_tree_iter of_string of_pvar of_var pat
+          )
+        | Some(Trivial n) when List.length ts >= n ->
+          (if needs_parentheses then with_p else of_term) (List.nth ts (n-1))
+        | _ -> default()
         end
-    | _ -> default h ts
-  else default h ts
+    | _ -> default()
+  else default()
 
 let is_lem x = is_opaq x || is_priv x
 

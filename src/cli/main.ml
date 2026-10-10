@@ -612,7 +612,7 @@ let cmd_export =
     | SttCoq ->
       Export.Stt.stt := true;
       Option.iter Export.Stt.set_renaming !renaming;
-      Option.iter Export.Stt.set_encoding !encoding;
+      Option.iter Export.Stt.set_notations !encoding;
       Option.iter Export.Stt.set_mapping !mapping;
       Option.iter Export.Stt.set_requiring !requiring;
       Export.Coq.print (parse file)
