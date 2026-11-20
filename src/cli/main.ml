@@ -663,7 +663,7 @@ let cmd_export =
     end;
     let parse = Parsing.Parser.parse_file in
     begin match output with
-    | ParamSttRocq | ParamSttLean -> Export.Stt.parametrised := true
+    | ParamSttRocq | ParamSttLean  -> Export.Stt.parametrised := true
     | _ -> () end;
     match output with
     | Lp -> Parsing.Pretty.commands Format.std_formatter (parse file)
